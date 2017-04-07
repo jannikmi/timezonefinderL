@@ -12,10 +12,6 @@ timezonefinderL
     :target: https://pypi.python.org/pypi/timezonefinder
 
 
-This is a fast and lightweight python project for looking up the corresponding
-timezone for a given lat/lng on earth entirely offline.
-
-
 timezonefinderL is the faster and lightweight version of the original `timezonefinder <https://github.com/MrMinimal64/timezonefinder>`__. 
 
 NOTE: In contrast to ``timezonefinder`` with this package the borders of a timezone are stored simplified

@@ -19,7 +19,7 @@ Around 56% of the coordinates of the timezone polygons have been simplified and 
 
 NOTE: In contrast to ``timezonefinder`` with this package the borders of a timezone are stored simplified
 when there is no directly neighbouring timezone. So on shorelines the polygons look a lot different now!
-This consequently means that the functions **certain_timezone_at():** and **closest_timezone_at():** are not really useful any more!
+This consequently means that the functions **certain_timezone_at()** and **closest_timezone_at()** are not really useful any more!
 
 Check out the GUI and API at: `TimezonefinderL GUI <http://timezonefinder.michelfe.it/gui>`__
 

@@ -3,13 +3,13 @@ timezonefinderL
 ===============
 
 .. image:: https://img.shields.io/travis/MrMinimal64/timezonefinderL.svg?branch=master
-    :target: https://travis-ci.org/MrMinimal64/timezonefinder
+    :target: https://travis-ci.org/MrMinimal64/timezonefinderL
 
 .. image:: https://img.shields.io/pypi/wheel/timezonefinderL.svg
-    :target: https://pypi.python.org/pypi/timezonefinder
+    :target: https://pypi.python.org/pypi/timezonefinderL
 
 .. image:: https://img.shields.io/pypi/v/timezonefinderL.svg
-    :target: https://pypi.python.org/pypi/timezonefinder
+    :target: https://pypi.python.org/pypi/timezonefinderL
 
 
 timezonefinderL is the faster and lightweight version of the original `timezonefinder <https://github.com/MrMinimal64/timezonefinder>`__. 

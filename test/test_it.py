@@ -77,7 +77,7 @@ def list_of_random_points(length):
 
 def print_speedup(tz_where_time, timezoefinder_time):
     print('tzwhere:', tz_where_time)
-    print('timezonefinder:', timezoefinder_time)
+    print('timezonefinderL:', timezoefinder_time)
     try:
         speedup = round(tz_where_time / timezoefinder_time - 1, 2)
         if speedup < 0:
@@ -98,9 +98,9 @@ class PackageEqualityTest(unittest.TestCase):
         print('shapely: OFF (tzwhere)')
 
     if TimezoneFinder.using_numba():
-        print('Numba: ON (timezonefinder)')
+        print('Numba: ON (timezonefinderL)')
     else:
-        print('Numba: OFF (timezonefinder)')
+        print('Numba: OFF (timezonefinderL)')
 
     start_time = datetime.now()
     timezone_finder = TimezoneFinder()
@@ -236,8 +236,8 @@ class PackageEqualityTest(unittest.TestCase):
         else:
             print('shapely: OFF (tzwhere)')
         if TimezoneFinder.using_numba():
-            print('Numba: ON (timezonefinder)')
+            print('Numba: ON (timezonefinderL)')
         else:
-            print('Numba: OFF (timezonefinder)')
+            print('Numba: OFF (timezonefinderL)')
         print_speed_test('realistic points', self.realistic_points)
         print_speed_test('random points', list_of_random_points(length=N))

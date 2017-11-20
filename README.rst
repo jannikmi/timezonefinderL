@@ -14,16 +14,15 @@ timezonefinderL
 
 timezonefinderL is the faster and lightweight version of the original `timezonefinder <https://github.com/MrMinimal64/timezonefinder>`__. 
 The data takes up 9MB (instead of 19,5MB as with timezonefinder).
-Around 56% of the coordinates of the timezone polygons have been simplified and around 60% of the polygons (mostly small islands) have been included in the simplified polygons.
+Around 56% of the coordinates of all timezone polygons have been simplified and around 60% of the polygons (e.g. small islands) have then been included in the simplified polygons.
 
+NOTE: The underlying data is outdated, because the ``tz_world`` data set this package was build on is not being maintained any more. Use this package in favour of ``timezonefinder`` when size and speed matter more you than actuality.
 
-NOTE: In contrast to ``timezonefinder`` with this package the borders of a timezone are stored simplified
-when there is no directly neighbouring timezone. So on shorelines the polygons look a lot different now!
-This consequently means that the functions **certain_timezone_at()** and **closest_timezone_at()** are not really useful any more!
+NOTE: As in the new version of ``timezonefinder`` the timezone polygons do not follow the shorelines (the borders of a timezone are simplified when there is no directly neighbouring timezone). As a consequence the results of the functions **certain_timezone_at()** and **closest_timezone_at()** are not really meaningful!
 
-Check out the GUI and API at: `TimezonefinderL GUI <http://timezonefinder.michelfe.it/gui>`__
+For a visualisation of the results (e.g. shapes of polygons) check out the GUI and API at: `TimezonefinderL GUI <http://timezonefinder.michelfe.it/gui>`__
 
-For everything else please refer to the `DOCUMENTATION <https://github.com/MrMinimal64/timezonefinder>`__.
+For everything else please refer to the original `DOCUMENTATION <https://github.com/MrMinimal64/timezonefinder>`__.
 
 Of course the commands need to modified:
 
@@ -59,11 +58,11 @@ Speed Comparison
 
     TIMES for  10000 realistic points
     tzwhere: 0:00:00.608965
-    timezonefinder: 0:00:00.564314
+    timezonefinderL: 0:00:00.564314
     0.08 times faster
 
 
     TIMES for  10000 random points
     tzwhere: 0:00:00.650164
-    timezonefinder: 0:00:00.508654
+    timezonefinderL: 0:00:00.508654
     0.28 times faster

@@ -12,8 +12,8 @@ timezonefinderL
     :target: https://pypi.python.org/pypi/timezonefinderL
 
 
-timezonefinderL is the faster and lightweight version of the original `timezonefinder <https://github.com/MrMinimal64/timezonefinder>`__. 
-The data takes up 9MB (instead of 19,5MB as with timezonefinder).
+timezonefinderL is the faster and lightweight, but outdated version of the original `timezonefinder <https://github.com/MrMinimal64/timezonefinder>`__. 
+The data takes up 9MB (instead of 19,5MB as with the previous ``tz_world`` data).
 Around 56% of the coordinates of all timezone polygons have been simplified and around 60% of the polygons (e.g. small islands) have then been included in the simplified polygons.
 
 NOTE: The underlying data is outdated, because the ``tz_world`` data set this package was build on is not being maintained any more. Use this package in favour of ``timezonefinder`` when size and speed matter more you than actuality.
@@ -37,32 +37,3 @@ Of course the commands need to modified:
 Also see:
 `GitHub <https://github.com/MrMinimal64/timezonefinderL>`__. 
 `PyPI <https://pypi.python.org/pypi/timezonefinderL/>`__
-
-
-License
-=======
-
-``timezonefinderL`` is distributed under the terms of the MIT license
-(see LICENSE.txt).
-
-
-
-Speed Comparison
-================
-
-::
-
-    shapely: ON (tzwhere)
-    Numba: ON (timezonefinderL)
-
-
-    TIMES for  10000 realistic points
-    tzwhere: 0:00:00.608965
-    timezonefinderL: 0:00:00.564314
-    0.08 times faster
-
-
-    TIMES for  10000 random points
-    tzwhere: 0:00:00.650164
-    timezonefinderL: 0:00:00.508654
-    0.28 times faster

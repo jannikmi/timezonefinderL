@@ -249,7 +249,6 @@ class TimezoneFinder:
         first_polygon_nr = unpack(b'<H', self.poly_nr2zone_id.read(2))[0]
         # read poly_nr of the first polygon of the next zone
         last_polygon_nr = unpack(b'<H', self.poly_nr2zone_id.read(2))[0]
-        print(first_polygon_nr, last_polygon_nr, range(first_polygon_nr, last_polygon_nr))
         poly_nrs = range(first_polygon_nr, last_polygon_nr)
         return [self.get_polygon(poly_nr, coords_as_pairs) for poly_nr in poly_nrs]
 
@@ -308,7 +307,6 @@ class TimezoneFinder:
                 counted_zones[zone_id] += 1
             except KeyError:
                 counted_zones[zone_id] = 1
-        # print(counted_zones)
 
         if len(counted_zones) == 1:
             # there is only one zone. no sorting needed.

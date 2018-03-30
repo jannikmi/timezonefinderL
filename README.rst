@@ -12,14 +12,14 @@ timezonefinderL
     :target: https://pypi.python.org/pypi/timezonefinderL
 
 
-timezonefinderL is the faster and lightweight version of the original `timezonefinder <https://github.com/MrMinimal64/timezonefinder>`__. 
+timezonefinderL is the faster and more lightweight version of the original `timezonefinder <https://github.com/MrMinimal64/timezonefinder>`__. 
 The data takes up 9MB (instead of 19,5MB as with timezonefinder).
 Around 56% of the coordinates of the timezone polygons have been simplified and around 60% of the polygons (mostly small islands) have been included in the simplified polygons.
 
 
 NOTE: In contrast to ``timezonefinder`` with this package the borders of a timezone are stored simplified
 when there is no directly neighbouring timezone. So on shorelines the polygons look a lot different now!
-This consequently means that the functions **certain_timezone_at()** and **closest_timezone_at()** are not really useful any more!
+This consequently means that the functions **certain_timezone_at()** and **closest_timezone_at()** are not really useful any more! Code written for using ``timezonefinder`` is completely compatible, but due to the reasons stated above it might not yield the same results.
 
 Check out the GUI and API at: `TimezonefinderL GUI <http://timezonefinder.michelfe.it/gui>`__
 
@@ -36,7 +36,7 @@ Of course the commands need to modified:
 
 
 Also see:
-`GitHub <https://github.com/MrMinimal64/timezonefinderL>`__. 
+`GitHub <https://github.com/MrMinimal64/timezonefinderL>`__,
 `PyPI <https://pypi.python.org/pypi/timezonefinderL/>`__
 
 

@@ -2,6 +2,14 @@ Changelog
 =========
 
 
+3.2.1 (to come)
+---------------
+
+* updated to the status of current ``timezonefinder`` main package ``v3.2.1``
+* the timezone polygon simplification currently is not effective enough to justify a new release (data would be almost as big as with the regular timezonefinder)
+
+
+
 2.0.1 (2017-04-08)
 ------------------
 

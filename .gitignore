@@ -1,10 +1,11 @@
 MANIFEST
-publish.py
-test/memory_usage_test_tzwhere.py
-test/memory_usage_test_timezonefinder.py
-timezonefinderL/tz_world.json
-
+timezonefinderL/combined.json
 scrapyard.py
+.DS_Store
+tmp.py
+.pytest_cache
+venv/
+old/
 
 # GITIGNORE DEFAULTS
 

@@ -1,23 +1,127 @@
-from __future__ import (absolute_import, division, print_function, unicode_literals)
+from __future__ import absolute_import, division, print_function, unicode_literals
 
-import re
+import json
 from datetime import datetime
 from math import ceil, floor
+from os.path import abspath, join, pardir
 from struct import pack
+from sys import stdout
 
+from six.moves import range, zip
 from numpy import array, linalg
 
-# # keep in mind: numba optimized fct. cannot be used here, because numpy classes are not being used at this stage yet!
-from .helpers import coord2int, inside_polygon, int2coord
-from .timezone_names import timezone_names
+# keep in mind: the faster numba optimized helper fct. cannot be used here,
+# because numpy classes are not being used at this stage yet!
+# from .helpers import TIMEZONE_NAMES_FILE, coord2int, inside_polygon, int2coord
+
+from helpers import coord2int, inside_polygon, int2coord, TIMEZONE_NAMES_FILE
 
 # import sys
 # from os.path import dirname
+#
 # sys.path.insert(0, dirname(__file__))
 # from helpers import coord2int, int2coord, inside_polygon
-# from timezone_names import timezone_names
 
-# ATTENTION: Don't change these settings or timezonefinder wont work!
+
+"""
+TODO write tests
+
+USE INSTRUCTIONS:
+
+- download the latest timezones.geojson.zip file from github.com/evansiroky/timezone-boundary-builder/releases
+- unzip and place the combined.json inside this timezonefinderL folder
+- run this file_converter.py as a script until the compilation of the binary files is completed.
+
+
+IMPORTANT: all coordinates (floats) are being converted to int32 (multiplied by 10^7). This makes computations faster
+and it takes lot less space, without loosing too much accuracy (min accuracy (=at the equator) is still 1cm !)
+
+B = unsigned char (1byte = 8bit Integer)
+H = unsigned short (2 byte integer)
+I = unsigned 4byte integer
+i = signed 4byte integer
+
+
+Binaries being written:
+
+[POLYGONS:] there are approx. 1k Polygons (evansiroky/timezone-boundary-builder v2017a)
+poly_zone_ids: the related zone_id for every polygon ('<H')
+poly_coord_amount: the amount of coordinates in every polygon ('<I')
+poly_adr2data: address in poly_data.bin where data for every polygon starts ('<I')
+poly_max_values: boundaries for every polygon ('<iiii': xmax, xmin, ymax, ymin)
+poly_data: coordinates for every polygon (multiple times '<i') (for every polygon first all x then all y values!)
+poly_nr2zone_id: the polygon number of the first polygon from every zone('<H')
+
+[HOLES:] number of holes (162 evansiroky/timezone-boundary-builder 2018d)
+hole_poly_ids: the related polygon_nr (=id) for every hole ('<H')
+hole_coord_amount: the amount of coordinates in every hole ('<H')
+hole_adr2data: address in hole_data.bin where data for every hole starts ('<I')
+hole_data: coordinates for every hole (multiple times '<i')
+
+[SHORTCUTS:] the surface of the world is split up into a grid of shortcut rectangles.
+-> there are a total of 360 * NR_SHORTCUTS_PER_LNG * 180 * NR_SHORTCUTS_PER_LAT shortcuts
+shortcut here means storing for every cell in a grid of the world map which polygons are located in that cell
+they can therefore be used to drastically reduce the amount of polygons which need to be checked in order to
+decide which timezone a point is located in.
+
+the list of polygon ids in each shortcut is sorted after freq. of appearance of their zone id
+this is critical for ruling out zones faster (as soon as just polygons of one zone are left this zone can be returned)
+
+shortcuts_entry_amount: the amount of polygons for every shortcut ('<H')
+shortcuts_adr2data: address in shortcut_data.bin where data for every shortcut starts ('<I')
+shortcuts_data: polygon numbers (ids) for every shortcut (multiple times '<H')
+shortcuts_unique_id: the zone id if only polygons from one zone are present,
+                     a high number (with no corresponding zone) if not ('<H').
+                     the majority of zones either have no polygons at all (sea) or just one zone.
+                     this zone then can be instantly returned without actually testing polygons.
+
+also stored extra binary if only one zone (to directly return that zone without checking)
+
+
+
+shortcut statistics: (data version 2018d)
+highest entry amount is 30
+frequencies of entry amounts (from 0 to max entries):
+[89768, 32917, 6217, 617, 59, 11, 4, 1, 2, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 1]
+relative accumulated frequencies [%]:
+[69.27, 94.66, 99.46, 99.94, 99.98, 99.99, 99.99, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0,
+    100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0]
+[30.73, 5.34, 0.54, 0.06, 0.02, 0.01, 0.01, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+69.27 % of all shortcuts are empty
+
+highest amount of different zones in one shortcut is 7
+frequencies of entry amounts (from 0 to max):
+[89768, 33199, 5999, 593, 35, 4, 1, 1]
+relative accumulated frequencies [%]:
+[69.27, 94.88, 99.51, 99.97, 100.0, 100.0, 100.0, 100.0]
+[30.73, 5.12, 0.49, 0.03, 0.0, 0.0, 0.0, 0.0]
+--------------------------------
+
+The number of filled shortcut zones are: 39832 (= 30.73 % of all shortcuts)
+The number of polygons is: 1018
+The number of floats in all the polygons is (2 per point): 10434626
+
+the polygon data makes up 97.2 % of the data
+the shortcuts make up 2.03 % of the data
+holes make up 0.77 % of the data
+"""
+
+INPUT_JSON_FILE_NAME = 'combined.json'
+
+# in debugging mode parse only some polygons
+DEBUG = True
+DEBUG_POLY_STOP = 1
+
+# a vertex is being deleted if the newly introduced edge would shorten the boundary less than this threshold
+# given in coordinates not real distance on the surface of the earth
+# 10m distance on equator equals: (10m * 360deg)/(40075.017 km) ~ 9 x10^-6 deg longitude
+# everywhere else on earth 9 x10^-6 degree absolute difference in coordinates correspond to a smaller distance than 10m
+# TODO test, choose different
+
+SHORTENING_SIMPLIFICATION_THRES = 9e-6
+
+# ATTENTION: Don't change these settings or timezonefinderL wont work!
 # different setups of shortcuts are not supported, because then addresses in the .bin
 # need to be calculated depending on how many shortcuts are being used.
 # number of shortcuts per longitude
@@ -25,9 +129,11 @@ NR_SHORTCUTS_PER_LNG = 1
 # shortcuts per latitude
 NR_SHORTCUTS_PER_LAT = 2
 
+INVALID_ZONE_ID = 65535  # highest possible with H (2 byte integer)
+
 nr_of_lines = -1
 all_tz_names = []
-ids = []
+poly_zone_ids = []
 all_boundaries = []
 all_coords = []
 all_lengths = []
@@ -118,7 +224,7 @@ def polys_of_one_zone():
     for i in range(len(timezone_names)):
         start = poly_nr2zone_id[i]
         end = poly_nr2zone_id[i + 1]
-        yield range(start, end)
+        yield list(range(start, end))
 
 
 def replace_entry(iterable, entry, substitute):
@@ -145,7 +251,7 @@ def line_segments_intersect(p1, p2, q1, q2, magn_delta_p):
     # magn_delta_p = |p1-p2|  (magnitude)
     # magn_delta_q = euclidean_distance(q1[0], q1[1], q2[0], q2[1])
     if max(p1[0], p2[0]) < min(q1[0], q2[0]) or max(q1[0], q2[0]) < min(p1[0], p2[0]) or \
-            max(p1[1], p2[1]) < min(q1[1], q2[1]) or max(q1[1], q2[1]) < min(p1[1], p2[1]):
+        max(p1[1], p2[1]) < min(q1[1], q2[1]) or max(q1[1], q2[1]) < min(p1[1], p2[1]):
         return False
 
     dif_p_x = p2[0] - p1[0]
@@ -170,35 +276,39 @@ def line_segments_intersect(p1, p2, q1, q2, magn_delta_p):
     return True
 
 
-triangle_x = [0.0, 0.0, 0.0]
-triangle_y = [0.0, 0.0, 0.0]
+# triangle_x = [0.0, 0.0, 0.0]
+# triangle_y = [0.0, 0.0, 0.0]
 
 
-def minimize_polygon(x_coords, y_coords, own_id):
+def minimize_polygon(x_coords, y_coords, is_big_poly, poly_id, zone_id):
+    # makes the polygon have only protruding vertices (no more indentations, except on borders to other zones)
     # for computational simplification the polygon is simplified in xy (lng, lat) plane (not on a sphere)
-    # after computation the polygon has no more indentations (only on borders to other zones)
 
     old_length = len(x_coords)
-    if old_length <= 3:
+    if old_length < 3:
+        raise ValueError('Invalid polygon with just ', old_length, 'vertices:', (x_coords, y_coords))
+
+    if old_length == 3:
+        # no simplifications can be made!
         return (x_coords, y_coords), old_length
 
     refused_p1s = []
+    # maintain a list of all points (their indices) still in the polygon
+    # = edge indices of simplified polygon
     remaining_points = [i for i in range(old_length)]
 
-    # print(max(*x_coords), min(*x_coords), max(*y_coords), min(*y_coords))
+    max_x, min_x, max_y, min_y = max(*x_coords), min(*x_coords), max(*y_coords), min(*y_coords)
+    # print(max_x, min_x, max_y, min_y)
 
     # all of the points are candidates at first
     # only points contained in this list should be tested. this is to prevent repeated computations
-    candidate_points = [i for i in remaining_points if i not in refused_p1s]
-    # maintain a list of all points (their indices) still in the polygon
-    # = edge indices of simplified polygon
+    candidate_points = remaining_points.copy()
+
     # those two lists should never contain duplicate entries
     current_length = old_length
-    lookahead_margin = min(250, int(current_length / 2)) + 1
-    pointer1 = 0
-    p1 = 0.0, 0.0
-    p2 = 0.0, 0.0
-    p3 = 0.0, 0.0
+
+    def get_lookahead_margin():
+        return min(250, int(current_length / 2)) + 1
 
     def close_polygon_nrs():
         global triangle_x, triangle_y
@@ -221,8 +331,8 @@ def minimize_polygon(x_coords, y_coords, own_id):
         for x_s in range(x_shortcut_min, x_shortcut_max):
             for y_s in range(y_shortcut_min, y_shortcut_max):
                 for poly_nr in get_shortcuts(x_s, y_s):
-                    # ignore polygons of own zone
-                    if ids[poly_nr] != own_id:
+                    # ignore polygons of own zone, simplifications should be made even when intersecting own polygons!
+                    if poly_zone_ids[poly_nr] != zone_id:
                         b = all_boundaries[poly_nr]
                         if not (x_min > b[0] or x_max < b[1] or y_min > b[2] or y_max < b[3]):
                             out.append(poly_nr)
@@ -238,11 +348,17 @@ def minimize_polygon(x_coords, y_coords, own_id):
             # the median of the triangle lies inside the polygon
             # this new edge would run through the polygon itself and hence make it smaller!
             # this is not a valid simplification
-            # later simplificatons could still be possible!
+            # later simplifications could still be possible! do not add the point to the refused points
             return True
 
-        triangle_x = [p1[0], p2[0], p3[0]]
-        triangle_y = [p1[1], p2[1], p3[1]]
+        triangle_x = array([p1[0], p2[0], p3[0]])
+        triangle_y = array([p1[1], p2[1], p3[1]])
+
+        # abs_shortening = linalg.norm(p1 - p2) + linalg.norm(p2 - p3) - linalg.norm(p1 - p3)
+        # if abs_shortening <= SHORTENING_SIMPLIFICATION_THRES:
+        #     # introducing the new edge shortens the polygon boundary only slightly
+        #     # it is a valid simplification
+        #     return False
 
         # the new line runs outside the polygon, it could however still intersect with other polygons
         # there is no new intersection being introduced by a simplification iff
@@ -252,7 +368,7 @@ def minimize_polygon(x_coords, y_coords, own_id):
         middle_point = point_between(p1, p3)
         close_polygon_nrs_list = close_polygon_nrs()
         for polygon in _polygons(close_polygon_nrs_list):
-            # it is not allowed that the edge runs through polygon!
+            # it is not allowed that the new edge runs through another polygon!
             if inside_polygon(middle_point[0], middle_point[1], polygon):
                 refused_p1s.append(remaining_points[pointer1])
                 return True
@@ -295,6 +411,13 @@ def minimize_polygon(x_coords, y_coords, own_id):
 
         return False
 
+    lookahead_margin = get_lookahead_margin()
+    pointer1 = 0
+    # p1 = 0.0, 0.0
+    # p2 = 0.0, 0.0
+    # p3 = 0.0, 0.0
+    start_str = '\r#{}: p1@'.format(poly_id)
+
     while not_empty(candidate_points):
         # look for the next point that has to be optimized
         # update first pointer (length has changed)
@@ -303,14 +426,20 @@ def minimize_polygon(x_coords, y_coords, own_id):
         # print(candidate_points,'\n')
         pointer1 = remaining_points.index(candidate_points.pop(0))
         previous_point = remaining_points[pointer1 - 1]
-        p1 = x_coords[pointer1], y_coords[pointer1]
+        p1 = array((x_coords[pointer1], y_coords[pointer1]))
         simplification_made = False
         # print(pointer1, pointer2, pointer3, current_length)
+
+        # visualize the progress of simplification only for big polygons:
+        if is_big_poly:
+            stdout.write(start_str + '{} /{}'.format(pointer1, current_length))
+            stdout.flush()
+
         while True:
             pointer2 = (pointer1 + 1) % current_length
             pointer3 = (pointer2 + 1) % current_length
-            p2 = x_coords[pointer2], y_coords[pointer2]
-            p3 = x_coords[pointer3], y_coords[pointer3]
+            p2 = array((x_coords[pointer2], y_coords[pointer2]))
+            p3 = array((x_coords[pointer3], y_coords[pointer3]))
             if simplification_invalid():
                 # break if no simplification is possible
                 break
@@ -325,9 +454,13 @@ def minimize_polygon(x_coords, y_coords, own_id):
                 pass
             current_length -= 1
             if current_length <= 3:
+                # assert max_x == max(*x_coords)
+                # assert min_x == min(*x_coords)
+                # assert max_y == max(*y_coords)
+                # assert min_y == min(*y_coords)
                 return (x_coords, y_coords), current_length
             # since length >= 4: lookahead_margin >=2 (and lookahead_margin <=51)
-            lookahead_margin = min(250, int(current_length / 2)) + 1
+            lookahead_margin = get_lookahead_margin()
             simplification_made = True
             # since list is shorter now pointers don't have to be moved
             # but since the length is decreasing the modulo operator has to be applied again
@@ -337,7 +470,7 @@ def minimize_polygon(x_coords, y_coords, own_id):
                 # print(pointer1, pointer2, pointer3, current_length)
                 # print(p1, p2, p3)
 
-        # when reaching this, the maximum amount of simplifications have been made for this particular point p1
+        # the maximum amount of simplifications have been made for this particular point p1
         if simplification_made:
             if previous_point not in candidate_points and previous_point not in refused_p1s:
                 # check the point before p1 again
@@ -350,6 +483,15 @@ def minimize_polygon(x_coords, y_coords, own_id):
                 # also check the point after p1 again
                 # (since p2 couldn't be removed, this is the point where pointer2 is pointing now)
                 candidate_points.append(next_point)
+
+    if is_big_poly:
+        stdout.write("\n")  # move the cursor to the next line
+
+    # TODO by this simplifications the extreme boundaries of the polygon should stay unchanged!
+    # assert max_x == max(*x_coords)
+    # assert min_x == min(*x_coords)
+    # assert max_y == max(*y_coords)
+    # assert min_y == min(*y_coords)
 
     return (x_coords, y_coords), current_length
 
@@ -382,15 +524,17 @@ def minimize_all(snapping_distance=1.0):
     for poly_nrs in polys_of_one_zone():
         zone_id += 1
         # print(zone_id, poly_nrs)
-        print('\ntz name:', timezone_names[zone_id], 'polygon nrs in this zone: from', poly_nrs[0], 'to', poly_nrs[-1])
+        print('\nzone:', timezone_names[zone_id], 'ids: ', poly_nrs[0], '-', poly_nrs[-1])
         # if i == 2:
         #     break
         lengths = []
         for nr in poly_nrs:
             x_coords, y_coords = all_coords[nr]
             old_length = all_lengths[nr]
+
+            is_big_poly = old_length > 5000
             # update polygon data (boundaries have not changed)
-            all_coords[nr], new_length = minimize_polygon(x_coords, y_coords, own_id=zone_id)
+            all_coords[nr], new_length = minimize_polygon(x_coords, y_coords, is_big_poly, poly_id=nr, zone_id=zone_id)
             # update the lengths
             if new_length > 1000:
                 print('still a big polygon: number:', nr, 'simplification:',
@@ -543,212 +687,127 @@ def minimize_all(snapping_distance=1.0):
     print('\n')
 
 
-def parse_polygons_from_json(path='tz_world.json'):
+def parse_polygons_from_json(path=INPUT_JSON_FILE_NAME):
     global amount_of_holes
     global nr_of_lines
+    global poly_zone_ids
 
-    max_length = 0
+    print('Parsing data from {}\nthis could take a while...\n'.format(path))
+    tz_list = json.loads(open(path).read()).get('features')
+    # this counter just counts polygons, not holes!
+    polygon_counter = 0
+    current_zone_id = 0
+    print('holes found at: (poly_nr zone_name)')
+    for tz_dict in tz_list:
+        if DEBUG and polygon_counter > DEBUG_POLY_STOP:
+            break
 
-    f = open(path, 'r')
-    print('Parsing data from .json\n')
-    print('Encountered holes at: ')
-
-    # file_line is the current line in the .json file being parsed. This is not equal to the id of the Polygon!
-    file_line = 0
-    for row in f:
-        # print(row)
-        tz_name_match = re.search(r'\"TZID\":\s\"(?P<name>.*)\"\s\}', row)
-        # tz_name = re.search(r'(TZID)', row)
+        tz_name = tz_dict.get('properties').get("tzid")
         # print(tz_name)
-        if tz_name_match is not None:
-
-            tz_name = tz_name_match.group('name').replace('\\', '')
-            all_tz_names.append(tz_name)
-
-            # if nr_of_lines == 200:
-            #     # print(polynrs_of_holes)
-            #     break
-
-            nr_of_lines += 1
-            # print(tz_name)
-
-            actual_depth = 0
-            counted_coordinate_pairs = 0
-            encoutered_nr_of_coordinates = []
-            for char in row:
-                if char == '[':
-                    actual_depth += 1
-
-                elif char == ']':
-                    actual_depth -= 1
-                    if actual_depth == 2:
-                        counted_coordinate_pairs += 1
-
-                    if actual_depth == 1:
-                        encoutered_nr_of_coordinates.append(counted_coordinate_pairs)
-                        counted_coordinate_pairs = 0
-
-            if actual_depth != 0:
-                raise ValueError('uneven number of brackets detected. Something is wrong in line', file_line)
-
-            coordinates = re.findall('[-]?\d+\.?\d+', row)
-
-            if len(coordinates) != sum(encoutered_nr_of_coordinates) * 2:
-                raise ValueError('There number of coordinates is counten wrong:', len(coordinates),
-                                 sum(encoutered_nr_of_coordinates) * 2)
-
-            # nr_floats = len(coordinates)
-            x_coords = []
-            y_coords = []
-            xmax = -180.0
-            xmin = 180.0
-            ymax = -90.0
-            ymin = 90.0
-
-            pointer = 0
-            # the coordiate pairs within the first brackets [ [x,y], ..., [xn, yn] ] are the polygon coordinates
-            # The last coordinate pair should be left out (is equal to the first one)
-            # the edge from last to first coordinate is still being tested in the algorithms,
-            # even without this redundancy
-            for n in range(2 * (encoutered_nr_of_coordinates[0] - 1)):
-                if n % 2 == 0:
-                    x = float(coordinates[pointer])
-                    x_coords.append(x)
-                    if x > xmax:
-                        xmax = x
-                    if x < xmin:
-                        xmin = x
-
-                else:
-                    y = float(coordinates[pointer])
-                    y_coords.append(y)
-                    if y > ymax:
-                        ymax = y
-                    if y < ymin:
-                        ymin = y
-
-                pointer += 1
-
+        all_tz_names.append(tz_name)
+        geometry = tz_dict.get("geometry")
+        if geometry.get('type') == 'MultiPolygon':
+            # depth is 4
+            multipolygon = geometry.get("coordinates")
+        else:
+            # depth is 3 (only one polygon, possibly with holes!)
+            multipolygon = [geometry.get("coordinates")]
+        # multipolygon has depth 4
+        # assert depth_of_array(multipolygon) == 4
+        for poly_with_hole in multipolygon:
+            # assert len(poly_with_hole) > 0
+            # the first entry is polygon
+            x_coords, y_coords = list(zip(*poly_with_hole.pop(0)))
+            # IMPORTANT: do not use the last value (is equal to the first)!
+            x_coords = list(x_coords)
+            y_coords = list(y_coords)
+            x_coords.pop(-1)
+            y_coords.pop(-1)
             all_coords.append((x_coords, y_coords))
+            # assert len(x_coords) > 0
             all_lengths.append(len(x_coords))
-            max_length = max(len(x_coords), max_length)
-            if max_length > 2 ** 16:
-                # 34621 in tz_world 2016d
-                raise ValueError('amount of coords cannot be represented by short (int16) in poly_coord_amount.bin:',
-                                 len(x_coords))
+            all_boundaries.append((max(x_coords), min(x_coords), max(y_coords), min(y_coords)))
+            poly_zone_ids.append(current_zone_id)
 
-            # print(x_coords)
-            # print(y_coords)
-
-            all_boundaries.append((xmax, xmin, ymax, ymin))
-
-            amount_holes_this_line = len(encoutered_nr_of_coordinates) - 1
-            if amount_holes_this_line > 0:
-                # store how many holes there are in this line
-                # store what the id of the first hole for this line is (for calculating the address to jump)
-                # first_hole_id_in_line.append(amount_of_holes)
+            # everything else is interpreted as a hole!
+            for hole in poly_with_hole:
+                print(polygon_counter, tz_name)
                 # keep track of how many holes there are
-                amount_of_holes += amount_holes_this_line
-                print(tz_name)
-
-                for i in range(amount_holes_this_line):
-                    polynrs_of_holes.append(nr_of_lines)
-                    print(nr_of_lines)
-                    # print(amount_holes_this_line)
-
-            # for every encountered hole
-            for i in range(1, amount_holes_this_line + 1):
-                x_coords = []
-                y_coords = []
-
-                # since the last coordinate was being left out,
-                # we have to move the pointer 2 floats further to be in the hole data again
-                pointer += 2
-
-                # The last coordinate pair should be left out (is equal to the first one)
-                for n in range(2 * (encoutered_nr_of_coordinates[i] - 1)):
-                    if n % 2 == 0:
-                        x_coords.append(float(coordinates[pointer]))
-                    else:
-                        y_coords.append(float(coordinates[pointer]))
-
-                    pointer += 1
-
+                amount_of_holes += 1
+                polynrs_of_holes.append(polygon_counter)
+                x_coords, y_coords = list(zip(*hole))
+                # IMPORTANT: do not use the last value (is equal to the first)!
+                x_coords = list(x_coords)
+                y_coords = list(y_coords)
+                x_coords.pop(-1)
+                y_coords.pop(-1)
                 all_holes.append((x_coords, y_coords))
                 all_hole_lengths.append(len(x_coords))
 
-        file_line += 1
+            polygon_counter += 1
 
-    # so far the nr_of_lines used to point to the current polygon but there is actually 1 more polygons in total
-    nr_of_lines += 1
+        current_zone_id += 1
 
-    print('\nmaximal amount of coordinates in one polygon:', max_length)
+    if max(all_lengths) >= 2 ** 32:
+        # 34621 in tz_world 2016d (small enough for int16)
+        # 137592 in evansiroky/timezone-boundary-builder 2017a (now int32 is needed!)
+        raise ValueError('amount of coords cannot be represented by int32 in poly_coord_amount.bin:',
+                         max(all_lengths))
+
+    if len(all_hole_lengths) > 0 and max(all_hole_lengths) >= 2 ** 16:
+        # 21071 in evansiroky/timezone-boundary-builder 2017a (int16 still enough)
+        raise ValueError('amount of coords cannot be represented by short (int16) in hole_coord_amount.bin:',
+                         max(all_hole_lengths))
+
+    nr_of_lines = len(all_lengths)
+    if polygon_counter != nr_of_lines:
+        raise ValueError('polygon counter and entry number in all_length is different:', polygon_counter, nr_of_lines)
+
+    if nr_of_lines >= 2 ** 16:
+        # 24k in tz_world 2016d
+        # 1022 in evansiroky/timezone-boundary-builder 2017a
+        raise ValueError('polygon id cannot be encoded as short (int16) in hole_coord_amount.bin! there are',
+                         nr_of_lines, 'polygons')
+
+    if poly_zone_ids[-1] > 2 ** 16:
+        # 420 different zones in evansiroky/timezone-boundary-builder 2017a
+        # used in shortcuts_unique_id and poly_zone_ids
+        raise ValueError('zone id cannot be encoded as char (int8). the last id is',
+                         poly_zone_ids[-1])
+
+    if 0 in all_lengths:
+        raise ValueError()
+
+    print('... parsing done.')
+    print('maximal amount of coordinates in one polygon:', max(all_lengths))
     print('amount_of_holes:', amount_of_holes)
     print('amount of polygons:', nr_of_lines)
-    print('Done with parsing .json\n')
+    print('\n')
 
 
-def update_zone_names(path='timezone_names.py'):
-    global ids
+def update_zone_names(path=TIMEZONE_NAMES_FILE):
+    global poly_zone_ids
     global list_of_pointers
     global all_boundaries
     global all_coords
     global all_lengths
     global polynrs_of_holes
-    print('updating the zone names now')
-    unique_zones = []
-    for zone_name in all_tz_names:
-        if zone_name not in unique_zones:
-            unique_zones.append(zone_name)
-    unique_zones.sort()
-
-    for zone_name in all_tz_names:
-        # the ids of the polygons have to be set correctly
-        ids.append(unique_zones.index(zone_name))
-
-    # write all unique zones into the file at path with the syntax of a python array
-    file = open(path, 'w')
-    file.write(
-        'from __future__ import absolute_import, division, print_function, unicode_literals\n\ntimezone_names = [\n')
-    for zone_name in unique_zones:
-        file.write('    "' + zone_name + '"' + ',\n')
-
-    file.write(']\n')
-    print('Done updating the ids and zone names\n')
-    print('Sorting the polygons now after the id of their zone')
-    list_of_pointers = range(nr_of_lines)
-    ids, list_of_pointers = zip(*sorted(zip(ids, list_of_pointers), key=lambda id: id[0]))
-    # index of poly_nr in list of pointers indicates new position of that polygon
-    sorted_coords = []
-    sorted_lengths = []
-    sorted_boundaries = []
-    for p in list_of_pointers:
-        sorted_coords.append(all_coords[p])
-        sorted_lengths.append(all_lengths[p])
-        sorted_boundaries.append(all_boundaries[p])
-
-    all_coords = sorted_coords
-    all_boundaries = sorted_boundaries
-    all_lengths = sorted_lengths
-
-    new_polynrs = []
-    # replace the corresponding poly nrs for every hole
-    for nr in polynrs_of_holes:
-        new_polynrs.append(list_of_pointers.index(nr))
-    # the order of holes does not matter
-    polynrs_of_holes = new_polynrs
-    print('Done\n')
-
-    print('computing where zones start and end')
+    print('updating the zone names in {} now...'.format(path))
+    # pickle the zone names (python array)
+    with open(abspath(path), 'w') as f:
+        f.write(json.dumps(all_tz_names))
+    print('...Done.\n\nComputing where zones start and end...')
     i = 0
     last_id = -1
-    for zone_id in ids:
+    for zone_id in poly_zone_ids:
         if zone_id != last_id:
             poly_nr2zone_id.append(i)
+            if zone_id < last_id:
+                raise ValueError()
             last_id = zone_id
         i += 1
     poly_nr2zone_id.append(i)
-    print('Done\n')
+    print('...Done.\n')
 
 
 def compile_binaries(simplify=True):
@@ -778,7 +837,7 @@ def compile_binaries(simplify=True):
         for entry in shortcut_entries:
             registered_zone_ids = []
             for polygon_nr in entry:
-                id = ids[polygon_nr]
+                id = poly_zone_ids[polygon_nr]
                 if id not in registered_zone_ids:
                     registered_zone_ids.append(id)
 
@@ -1021,12 +1080,12 @@ def compile_binaries(simplify=True):
 
     def construct_shortcuts():
         print('building shortucts...')
-        print('currently in line:')
+        print('currently at polygon nr:')
         line = 0
         for xmax, xmin, ymax, ymin in all_boundaries:
             # xmax, xmin, ymax, ymin = boundaries_of(line=line)
-            if line % 1000 == 0:
-                print('line ' + str(line))
+            if line % 100 == 0:
+                print(line)
                 # print([xmax, xmin, ymax, ymin])
 
             column_nrs = included_shortcut_column_nrs(xmax, xmin)
@@ -1084,8 +1143,8 @@ def compile_binaries(simplify=True):
                 for column_nr in column_nrs:
                     for row_nr in row_nrs:
                         shortcuts_for_line.append((column_nr, row_nr))
-
                         # print(shortcuts_for_line)
+
             for shortcut in shortcuts_for_line:
                 shortcuts[shortcut] = shortcuts.get(shortcut, []) + [line]
 
@@ -1111,6 +1170,7 @@ def compile_binaries(simplify=True):
         print('of', nr_of_polygons_old, 'polygons', nr_of_polygons_new, '(',
               percent(nr_of_polygons_new, nr_of_polygons_old), '%) remain\n')
 
+        # compute shortcuts again. by deleting vertices the polygons might now run through new shortcuts
         print('recomputing shortcuts now:')
         shortcuts = {}
         start_time = datetime.now()
@@ -1125,14 +1185,31 @@ def compile_binaries(simplify=True):
     shortcut_entries = []
     amount_filled_shortcuts = 0
 
+    def sort_poly_shortcut(poly_nrs):
+        # TODO write test
+        # the list of polygon ids in each shortcut is sorted after freq. of appearance of their zone id
+        # this is critical for ruling out zones faster
+        # (as soon as just polygons of one zone are left this zone can be returned)
+        # only around 5% of all shortcuts include polygons from more than one zone
+        # in most of those cases there are only two types of zones (= entries in counted_zones) and one of them
+        # has only one entry (important to check the zone with one entry first!).
+        polygon_ids = [poly_zone_ids[poly_nr] for poly_nr in poly_nrs]
+        id_freq = [polygon_ids.count(id) for id in polygon_ids]
+        zipped = list(zip(poly_nrs, polygon_ids, id_freq))
+        # also make sure polygons with the same zone freq. are ordered after their zone id
+        # (polygons from different zones should not get mixed up)
+        sort = sorted((sorted(zipped, key=lambda x: x[1])), key=lambda x: x[2])
+        return [x[0] for x in sort]  # take only the polygon nrs
+
     # count how many shortcut addresses will be written:
+    # flatten out the shortcuts in one list in the order they are going to be written inside the polygon file
     for x in range(360 * NR_SHORTCUTS_PER_LNG):
         for y in range(180 * NR_SHORTCUTS_PER_LAT):
             try:
-                this_lines_shortcuts = shortcuts[(x, y)]
-                shortcut_entries.append(this_lines_shortcuts)
+                shortcuts_this_entry = shortcuts[(x, y)]
+                shortcut_entries.append(sort_poly_shortcut(shortcuts_this_entry))
                 amount_filled_shortcuts += 1
-                nr_of_entries_in_shortcut.append(len(this_lines_shortcuts))
+                nr_of_entries_in_shortcut.append(len(shortcuts_this_entry))
                 # print((x,y,this_lines_shortcuts))
             except KeyError:
                 nr_of_entries_in_shortcut.append(0)
@@ -1157,35 +1234,24 @@ def compile_binaries(simplify=True):
     print('The number of floats in all the polygons is (2 per point):', nr_of_floats)
 
     path = 'poly_nr2zone_id.bin'
-    print('writing file "', path, '"')
+    print('writing file "{}"'.format(path))
     output_file = open(path, 'wb')
-    i = 0
-    last_id = -1
-    for zone_id in ids:
-        if zone_id != last_id:
-            output_file.write(pack(b'<H', i))
-            poly_nr2zone_id.append(i)
-            last_id = zone_id
-
-        i += 1
-
-    # write one more value to have an end address for the last zone_id
-    output_file.write(pack(b'<H', i))
-    poly_nr2zone_id.append(i)
+    for zone_id in poly_nr2zone_id:
+        output_file.write(pack(b'<H', zone_id))
     output_file.close()
 
     print('Done\n')
     # write zone_ids
     path = 'poly_zone_ids.bin'
-    print('writing file "', path, '"')
+    print('writing file "{}"'.format(path))
     output_file = open(path, 'wb')
-    for zone_id in ids:
+    for zone_id in poly_zone_ids:
         output_file.write(pack(b'<H', zone_id))
     output_file.close()
 
     # write boundary_data
     path = 'poly_max_values.bin'
-    print('writing file "', path, '"')
+    print('writing file "{}"'.format(path))
     output_file = open(path, 'wb')
     for xmax, xmin, ymax, ymin in all_boundaries:
         output_file.write(pack(b'<iiii', coord2int(xmax), coord2int(xmin), coord2int(ymax), coord2int(ymin)))
@@ -1193,41 +1259,43 @@ def compile_binaries(simplify=True):
 
     # write polygon_data, addresses and number of values
     path = 'poly_data.bin'
-    print('writing file "', path, '"')
+    print('writing file "{}"'.format(path))
     output_file = open(path, 'wb')
     addresses = []
-    amounts = []
+    i = 0
     for x_coords, y_coords in all_coords:
         addresses.append(output_file.tell())
-        amounts.append(len(x_coords))
+        if all_lengths[i] != len(x_coords):
+            raise ValueError('x_coords do not have the expected length!', all_lengths[i], len(x_coords))
         for x in x_coords:
             output_file.write(pack(b'<i', coord2int(x)))
         for y in y_coords:
             output_file.write(pack(b'<i', coord2int(y)))
+        i += 1
     output_file.close()
 
     path = 'poly_adr2data.bin'
-    print('writing file "', path, '"')
+    print('writing file "{}"'.format(path))
     output_file = open(path, 'wb')
     for adr in addresses:
         output_file.write(pack(b'<I', adr))
     output_file.close()
 
     path = 'poly_coord_amount.bin'
-    print('writing file "', path, '"')
+    print('writing file "{}"'.format(path))
     output_file = open(path, 'wb')
-    for a in amounts:
-        output_file.write(pack(b'<H', a))
+    for length in all_lengths:
+        output_file.write(pack(b'<I', length))
     output_file.close()
 
     # [SHORTCUT AREA]
     # write all nr of entries
     path = 'shortcuts_entry_amount.bin'
-    print('writing file "', path, '"')
+    print('writing file "{}"'.format(path))
     output_file = open(path, 'wb')
     for nr in nr_of_entries_in_shortcut:
         if nr > 300:
-            raise ValueError("There are too many polygons in this shortcuts:", nr)
+            raise ValueError("There are too many polygons in this shortcut:", nr)
         output_file.write(pack(b'<H', nr))
     output_file.close()
 
@@ -1235,7 +1303,7 @@ def compile_binaries(simplify=True):
     # Attention: 0 is written when no entries are in this shortcut
     adr = 0
     path = 'shortcuts_adr2data.bin'
-    print('writing file "', path, '"')
+    print('writing file "{}"'.format(path))
     output_file = open(path, 'wb')
     for nr in nr_of_entries_in_shortcut:
         if nr == 0:
@@ -1248,7 +1316,7 @@ def compile_binaries(simplify=True):
 
     # write Line_Nrs for every shortcut
     path = 'shortcuts_data.bin'
-    print('writing file "', path, '"')
+    print('writing file "{}"'.format(path))
     output_file = open(path, 'wb')
     for entries in shortcut_entries:
         for entry in entries:
@@ -1259,20 +1327,25 @@ def compile_binaries(simplify=True):
 
     # write corresponding zone id for every shortcut (iff unique)
     path = 'shortcuts_unique_id.bin'
-    print('writing file "', path, '"')
+    print('writing file "{}"'.format(path))
     output_file = open(path, 'wb')
+    if poly_zone_ids[-1] >= INVALID_ZONE_ID:
+        raise ValueError(
+            'There are too many zones for this data type (H). The shortcuts_unique_id file need a Invalid Id!')
     for x in range(360 * NR_SHORTCUTS_PER_LNG):
         for y in range(180 * NR_SHORTCUTS_PER_LAT):
             try:
-                this_lines_shortcuts = shortcuts[(x, y)]
-                unique_id = ids[this_lines_shortcuts[0]]
-                for nr in this_lines_shortcuts:
-                    if ids[nr] != unique_id:
-                        unique_id = 9999
+                shortcuts_this_entry = shortcuts[(x, y)]
+                unique_id = poly_zone_ids[shortcuts_this_entry[0]]
+                for nr in shortcuts_this_entry:
+                    if poly_zone_ids[nr] != unique_id:
+                        # there is a polygon from a different zone (hence an invalid id should be written)
+                        unique_id = INVALID_ZONE_ID
                         break
                 output_file.write(pack(b'<H', unique_id))
             except KeyError:
-                output_file.write(pack(b'<H', 9999))
+                # also write an Invalid Id when there is no polygon at all
+                output_file.write(pack(b'<H', INVALID_ZONE_ID))
 
     output_file.close()
     # [HOLE AREA, Y = number of holes (very few: around 22)]
@@ -1280,7 +1353,7 @@ def compile_binaries(simplify=True):
 
     # '<H' for every hole store the related line
     path = 'hole_poly_ids.bin'
-    print('writing file "', path, '"')
+    print('writing file "{}"'.format(path))
     output_file = open(path, 'wb')
     i = 0
     for line in polynrs_of_holes:
@@ -1296,7 +1369,7 @@ def compile_binaries(simplify=True):
 
     # '<H'  Y times [H unsigned short: nr of values (coordinate PAIRS! x,y in int32 int32) in this hole]
     path = 'hole_coord_amount.bin'
-    print('writing file "', path, '"')
+    print('writing file "{}"'.format(path))
     output_file = open(path, 'wb')
     for length in all_hole_lengths:
         output_file.write(pack(b'<H', length))
@@ -1306,7 +1379,7 @@ def compile_binaries(simplify=True):
     # '<I' Y times [ I unsigned int: absolute address of the byte where the data of that hole starts]
     adr = 0
     path = 'hole_adr2data.bin'
-    print('writing file "', path, '"')
+    print('writing file "{}"'.format(path))
     output_file = open(path, 'wb')
     for length in all_hole_lengths:
         output_file.write(pack(b'<I', adr))
@@ -1318,7 +1391,7 @@ def compile_binaries(simplify=True):
     # Y times [ 2x i signed ints for every hole: x coords, y coords ]
     # write hole polygon_data
     path = 'hole_data.bin'
-    print('writing file "', path, '"')
+    print('writing file "{}"'.format(path))
     output_file = open(path, 'wb')
     for x_coords, y_coords in all_holes:
         for x in x_coords:
@@ -1334,55 +1407,21 @@ def compile_binaries(simplify=True):
     print('the polygon data makes up', percent(polygon_space, total_space), '% of the data')
     print('the shortcuts make up', percent(shortcut_space, total_space), '% of the data')
     print('holes make up', percent(hole_space, total_space), '% of the data')
-    print('Success!')
+    print('\n\nSuccess!')
     return
 
 
-"""
-IMPORTANT: all coordinates (floats) are being converted to int32 (multiplied by 10^7). This makes computations faster
-and it takes lot less space, without loosing too much accuracy (min accuracy (=at the equator) is still 1cm !)
-
-H = unsigned short (2 byte integer)
-I = unsigned 4byte integer
-i = signed 4byte integer
-
-
-Binaries being written:
-
-[POLYGONS:] there are approx. 27k Polygons (tz_world 2016d)
-poly_zone_ids: the related zone_id for every polygon ('<H')
-poly_coord_amount: the amount of coordinates in every polygon ('<H')
-poly_adr2data: address in poly_data.bin where data for every polygon starts ('<I')
-poly_max_values: boundaries for every polygon ('<iiii': xmax, xmin, ymax, ymin)
-poly_data: coordinates for every polygon (multiple times '<i')
-poly_nr2zone_id: the polygon number of the first polygon from every zone('<H')
-
-[HOLES:] number of holes (very few: around 22)
-hole_poly_ids: the related polygon_nr (=id) for every hole ('<H')
-hole_coord_amount: the amount of coordinates in every hole ('<H')
-hole_adr2data: address in hole_data.bin where data for every hole starts ('<I')
-hole_data: coordinates for every hole (multiple times '<i')
-
-[SHORTCUTS:] there are a total of 360 * NR_SHORTCUTS_PER_LNG * 180 * NR_SHORTCUTS_PER_LAT shortcuts
-shortcut here means storing for every cell in a grid of the world map which polygons are located in that cell
-they can therefore be used to drastically reduce the amount of polygons which need to be checked in order to
-decide which timezone a point is located in
-
-shortcuts_entry_amount: the amount of polygons for every shortcut ('<H')
-shortcuts_adr2data: address in shortcut_data.bin where data for every shortcut starts ('<I')
-shortcuts_data: polygon numbers (ids) for every shortcut (multiple times '<H')
-shortcuts_unique_id: the zone id if only polygons from one zone are present,
-                     a high number (with no corresponding zone) if not ('<H')
-"""
-
 if __name__ == '__main__':
-    # reading the data from the .json converted from the tz_world shapefile .shp
-    parse_polygons_from_json(path='tz_world.json')
+    # parsing the data from the .json into RAM
+    parse_polygons_from_json(path=INPUT_JSON_FILE_NAME)
     # update all the zone names and set the right ids to be written in the poly_zone_ids.bin
     # sort data according to zone_id
-    update_zone_names(path='timezone_names.py')
-    # compute shortcuts
-    # minimize all polygons (takes hours!)
-    # recompute shortcuts
-    # write everything into the binaries
+    update_zone_names(path=TIMEZONE_NAMES_FILE)
+
+    # IMPORTANT: import the newly compiled timezone_names pickle!
+    # the compilation process needs the new version of the timezone names
+    with open(abspath(join(__file__, pardir, TIMEZONE_NAMES_FILE)), 'r') as f:
+        timezone_names = json.loads(f.read())
+
+    # compute shortcuts and write everything into the binaries
     compile_binaries(simplify=True)

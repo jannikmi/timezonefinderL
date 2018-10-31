@@ -12,7 +12,10 @@ timezonefinderL
     :target: https://pypi.python.org/pypi/timezonefinderL
 
 
-timezonefinderL is the faster and lightweight, but outdated version of the original `timezonefinder <https://github.com/MrMinimal64/timezonefinder>`__. 
+timezonefinderL is the faster and lightweight, version of the original `timezonefinder <https://github.com/MrMinimal64/timezonefinder>`__. 
+
+TODO 
+
 The data takes up 9MB (instead of 19,5MB as with the previous ``tz_world`` data).
 Around 56% of the coordinates of all timezone polygons have been simplified and around 60% of the polygons (e.g. small islands) have then been included in the simplified polygons.
 

@@ -2,6 +2,17 @@ Changelog
 =========
 
 
+4.0.2 (2019-05-23)
+------------------
+
+* MAJOR UPDATE: only the function ``timezone_at()`` is being supported
+* not based on the simplification of the timezone polygons any more (not easily achievable with the new boundary data set)
+* use the precomputed shortcuts to instantly look up a timezone ("instant shortcut", most common zone of the polygons within that shortcut)
+* updated the code to the status of the current ``timezonefinder`` main package ``v4.0.2``
+* data in use now is `timezone-boundary-builder 2019a <https://github.com/evansiroky/timezone-boundary-builder/releases/tag/2019a>`__
+* described options for increasing the accuracy in readme
+* dropped python2 support
+
 2.0.1 (2017-04-08)
 ------------------
 

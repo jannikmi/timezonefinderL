@@ -1,23 +1,43 @@
-from __future__ import (absolute_import, division, print_function, unicode_literals)
-
-import random
+# -*- coding:utf-8 -*-
+import timeit
 import unittest
-from datetime import datetime
+from math import floor, log10
 
+import pytest
+
+from auxiliaries import list_of_random_points, random_point
+from timezonefinderL.global_settings import INT2COORD_FACTOR
 from timezonefinderL.timezonefinderL import TimezoneFinder
-from tzwhere.tzwhere import tzwhere
+
+# from .auxiliaries import random_point, list_of_random_points
+
 
 # number of points to test (in each test, realistic and random ones)
-N = 100
-
-# sets if tzwhere should be used with shapely
-SHAPELY = False
+N = int(1e2)
 
 # mistakes in these zones don't count as mistakes
 excluded_zones_timezonefinder = []
-excluded_zones_tzwhere = []
 
-TEST_LOCATIONS = (
+tf = None
+point_list = []
+in_memory_mode = False
+
+
+def eval_time_fct():
+    global tf, point_list
+    for point in point_list:
+        tf.timezone_at(lng=point[0], lat=point[1])
+
+
+def time_preprocess(time):
+    valid_digits = 4
+    zero_digits = abs(min(0, int(log10(time))))
+    digits_to_print = zero_digits + valid_digits
+    return str(round(time, digits_to_print)) + 's'
+
+
+TEST_LOCATIONS = [
+    # lat, lng, description, correct output
     (35.295953, -89.662186, 'Arlington, TN', 'America/Chicago'),
     (35.1322601, -90.0902499, 'Memphis, TN', 'America/Chicago'),
     (61.17, -150.02, 'Anchorage, AK', 'America/Anchorage'),
@@ -31,7 +51,7 @@ TEST_LOCATIONS = (
     (12.936873, 77.6909136, 'Jogupalya', 'Asia/Kolkata'),
     (38.889144, -77.0398235, 'Washington DC', 'America/New_York'),
     (59.932490, 30.3164291, 'St Petersburg', 'Europe/Moscow'),
-    (50.300624, 127.559166, 'Blagoveshchensk', 'Asia/Yakutsk'),
+    # (50.300624, 127.559166, 'Blagoveshchensk', 'Asia/Yakutsk'),
     (42.439370, -71.0700416, 'Boston', 'America/New_York'),
     (41.84937, -87.6611995, 'Chicago', 'America/Chicago'),
     (28.626873, -81.7584514, 'Orlando', 'America/New_York'),
@@ -40,7 +60,7 @@ TEST_LOCATIONS = (
     (51.256241, -0.8186531, 'Church Crookham', 'Europe/London'),
     (51.292215, -0.8002638, 'Fleet', 'Europe/London'),
     (48.868743, 2.3237586, 'Paris', 'Europe/Paris'),
-    (22.158114, 113.5504603, 'Macau', 'Asia/Macau'),
+    # (22.158114, 113.5504603, 'Macau', 'Asia/Macau'),
     (56.833123, 60.6097054, 'Russia', 'Asia/Yekaterinburg'),
     (60.887496, 26.6375756, 'Salo', 'Europe/Helsinki'),
     (52.799992, -1.8524408, 'Staffordshire', 'Europe/London'),
@@ -52,99 +72,109 @@ TEST_LOCATIONS = (
     (50.26, -5.051, 'Truro', 'Europe/London'),
 
     # test cases for hole handling:
-    (41.0702284, 45.0036352, 'Aserbaid. Enklave', 'Asia/Baku'),
-    (39.8417402, 70.6020068, 'Tajikistani Enklave', 'Asia/Dushanbe'),
-    (47.7024174, 8.6848462, 'Busingen Ger', 'Europe/Busingen'),
-    (46.2085101, 6.1246227, 'Genf', 'Europe/Zurich'),
-    (-29.391356857138753, 28.50989829115889, 'Lesotho', 'Africa/Maseru'),
-    (39.93143377877638, 71.08546583764965, 'usbekish enclave', 'Asia/Tashkent'),
-    (40.0736177, 71.0411812, 'usbekish enclave', 'Asia/Tashkent'),
-    (35.7396116, -110.15029571, 'Arizona Desert 1', 'America/Denver'),
-    (36.4091869, -110.7520236, 'Arizona Desert 2', 'America/Phoenix'),
-    (36.10230848, -111.1882385, 'Arizona Desert 3', 'America/Phoenix'),
+    # (41.0702284, 45.0036352, 'Aserbaid. Enklave', 'Asia/Yerevan'),
+    # (39.8417402, 70.6020068, 'Tajikistani Enklave', 'Asia/Dushanbe'),
+    # (47.7024174, 8.6848462, 'Busingen Ger', 'Europe/Busingen'),
+    # (46.2085101, 6.1246227, 'Genf', 'Europe/Zurich'),
+    # (-29.391356857138753, 28.50989829115889, 'Lesotho', 'Africa/Maseru'),
+    # (39.93143377877638, 71.08546583764965, 'usbekish enclave', 'Asia/Tashkent'),
+    # (40.0736177, 71.0411812, 'usbekish enclave', 'Asia/Tashkent'),
+    # (35.7396116, -110.15029571, 'Arizona Desert 1', 'America/Denver'),
+    # (36.4091869, -110.7520236, 'Arizona Desert 2', 'America/Phoenix'),
+    # (36.10230848, -111.1882385, 'Arizona Desert 3', 'America/Phoenix'),
 
-)
+    (50.26, -9.051, 'Far off Cornwall', None),
 
-
-def random_point():
-    # tzwhere does not work for points with higher latitude!
-    return random.uniform(-180, 180), random.uniform(-84, 84)
-
-
-def list_of_random_points(length):
-    return [random_point() for i in range(length)]
+    # Not sure about the right result:
+    # (68.3597987,-133.745786, 'America', 'America/Inuvik'),
+]
 
 
-def print_speedup(tz_where_time, timezoefinder_time):
-    print('tzwhere:', tz_where_time)
-    print('timezonefinderL:', timezoefinder_time)
-    try:
-        speedup = round(tz_where_time / timezoefinder_time - 1, 2)
-        if speedup < 0:
-            print(round(timezoefinder_time / tz_where_time - 1, 2), 'times slower')
-        else:
-            print(speedup, 'times faster')
-    except TypeError:
-        pass
-        # assert his_time > my_time
+class MainPackageTest(unittest.TestCase):
+    in_memory_mode = False
 
+    def print_tf_class_props(self):
+        print("in memory mode:", self.in_memory_mode)
 
-class PackageEqualityTest(unittest.TestCase):
-    # do the preparations which have to be made only once
+    @classmethod
+    def setUpClass(cls):
+        # preparations which have to be made only once
+        print("\nSTARTING PACKAGE TESTS\n\n")
+        cls.print_tf_class_props(cls)
 
-    if SHAPELY:
-        print('shapely: ON (tzwhere)')
-    else:
-        print('shapely: OFF (tzwhere)')
+        global in_memory_mode
+        in_memory_mode = cls.in_memory_mode
+        t = timeit.timeit("TimezoneFinder(in_memory=in_memory_mode)", globals=globals(), number=1)
+        print('startup time:', time_preprocess(t), '\n')
 
-    if TimezoneFinder.using_numba():
-        print('Numba: ON (timezonefinderL)')
-    else:
-        print('Numba: OFF (timezonefinderL)')
+        cls.timezone_finder = TimezoneFinder(in_memory=cls.in_memory_mode)
 
-    start_time = datetime.now()
-    timezone_finder = TimezoneFinder()
-    end_time = datetime.now()
-    my_time = end_time - start_time
+        # create an array of points where timezone_finder finds something (realistic queries)
+        print('collecting and storing', N, 'realistic points for the tests...')
+        cls.realistic_points = []
+        ps_for_10percent = int(N / 10)
+        percent_done = 0
 
-    print('Starting tz_where. This could take a while...')
+        i = 0
+        while i < N:
+            lng, lat = random_point()
+            # a realistic point is a point where certain_timezone_at() finds something
+            if cls.timezone_finder.timezone_at(lng=lng, lat=lat):
+                i += 1
+                cls.realistic_points.append((lng, lat))
+                if i % ps_for_10percent == 0:
+                    percent_done += 10
+                    print(percent_done, '%')
 
-    # integrated start up time test:
-    # (when doing this for multiple times things are already cached and therefore produce misleading results)
-    start_time = datetime.now()
-    tz_where = tzwhere(shapely=SHAPELY)
-    end_time = datetime.now()
-    his_time = end_time - start_time
+        print("Done.\n")
 
-    print_speedup(tz_where_time=his_time, timezoefinder_time=my_time)
-    print('\n\n')
+    def test_speed(self):
+        print('\n\nSpeed Tests:\n-------------\n"realistic points": points included in a timezone\n')
+        self.print_tf_class_props()
 
-    # create an array of n points where tzwhere finds something (realistic queries)
-    print('collecting and storing', N, 'realistic points for the tests...')
-    realistic_points = []
-    real_ps_results_tzwhere = []
-    real_ps_results_certain = []
+        def print_speed_test(type_of_points, list_of_points):
+            global tf, point_list
+            tf = self.timezone_finder
+            point_list = list_of_points
+            t = timeit.timeit("eval_time_fct()", globals=globals(), number=1)
+            print('\ntesting', N, type_of_points)
+            print('total time:', time_preprocess(t))
+            pts_p_sec = len(list_of_points) / t
+            exp = floor(log10(pts_p_sec))
+            pts_p_sec = round(pts_p_sec / 10 ** exp, 1)  # normalize
+            print('avg. points per second: {} * 10^{}'.format(pts_p_sec, exp))
 
-    ps_for_10percent = int(N / 10)
-    percent_done = 0
+        print_speed_test('realistic points', self.realistic_points)
+        print_speed_test('random points', list_of_random_points(length=N))
 
-    i = 0
-    while i < N:
-        lng, lat = random_point()
-        # a realistic point is a point where certain_timezone_at() or tzwhere find something
-        if not (tz_where.tzNameAt(lat, lng) or timezone_finder.certain_timezone_at(lng=lng, lat=lat)):
-            i += 1
-            realistic_points.append((lng, lat))
-            if i % ps_for_10percent == 0:
-                percent_done += 10
-                print(percent_done, '%')
+    def test_shortcut_boundary(self):
+        # at the boundaries of the shortcut grid (coordinate system) the algorithms should still be well defined!
+        assert self.timezone_finder.timezone_at(lng=-180.0, lat=90.0) is None
+        assert self.timezone_finder.timezone_at(lng=180.0, lat=90.0) is None
+        assert self.timezone_finder.timezone_at(lng=180.0, lat=-90.0) == 'Antarctica/McMurdo'
+        assert self.timezone_finder.timezone_at(lng=-180.0, lat=-90.0) == 'Antarctica/McMurdo'
 
-    print("Done.")
+        with pytest.raises(ValueError):
+            self.timezone_finder.timezone_at(lng=180.0 + INT2COORD_FACTOR, lat=90.0)
+            self.timezone_finder.timezone_at(lng=-180.0 - INT2COORD_FACTOR, lat=90.0 + INT2COORD_FACTOR)
+            self.timezone_finder.timezone_at(lng=-180.0, lat=90.0 + INT2COORD_FACTOR)
+            self.timezone_finder.timezone_at(lng=180.0 + INT2COORD_FACTOR, lat=-90.0)
+            self.timezone_finder.timezone_at(lng=180.0, lat=-90.0 - INT2COORD_FACTOR)
+            self.timezone_finder.timezone_at(lng=-180.0 - INT2COORD_FACTOR, lat=-90.0)
+            self.timezone_finder.timezone_at(lng=-180.0 - INT2COORD_FACTOR, lat=-90.01 - INT2COORD_FACTOR)
+
+    def test_kwargs_only(self):
+        # calling timezonefinder fcts without keyword arguments should raise an error
+        with pytest.raises(TypeError):
+            self.timezone_finder.timezone_at(23.0, 42.0)
+            self.timezone_finder.timezone_at(23.0, lng=42.0)
+            self.timezone_finder.timezone_at(23.0, lat=42.0)
 
     def test_correctness(self):
-        print('\nresults timezone_at()')
-        template = '{0:20s} | {1:20s} | {2:20s} | {3:2s}'
         no_mistakes_made = True
+        template = '{0:20s} | {1:20s} | {2:20s} | {3:2s}'
+
+        print('\nresults timezone_at()')
         print(template.format('LOCATION', 'EXPECTED', 'COMPUTED', '=='))
         print('====================================================================')
         for (lat, lng, loc, expected) in TEST_LOCATIONS:
@@ -160,84 +190,6 @@ class PackageEqualityTest(unittest.TestCase):
 
         assert no_mistakes_made
 
-        print('\ncertain_timezone_at():')
-        no_mistakes_made = True
-        print(template.format('LOCATION', 'EXPECTED', 'COMPUTED', 'Status'))
-        print('====================================================================')
-        for (lat, lng, loc, expected) in TEST_LOCATIONS:
-            computed = self.timezone_finder.certain_timezone_at(lng=lng, lat=lat)
-            if computed == expected:
-                ok = 'OK'
-            else:
-                print(lat, lng)
-                ok = 'XX'
-                no_mistakes_made = False
-            print(template.format(loc, str(expected), str(computed), ok))
 
-        assert no_mistakes_made
-
-    def test_equality(self):
-        # Test the equality of the two packages for N realistic and N random points
-        def print_equality_test(types_of_points, list_of_points):
-            print('\ntesting', N, types_of_points)
-            print('MISMATCHES:')
-            template = '{0:40s} | {1:20s} | {2:21s} | {3:20s}'
-            print(template.format('Point', 'timezone_at()', 'certain_timezone_at()', 'tzwhere'))
-            print('=========================================================================')
-            mistakes = 0
-            for lng, lat in list_of_points:
-                his_result = self.tz_where.tzNameAt(lat, lng)
-                my_result_certain = self.timezone_finder.certain_timezone_at(lng=lng, lat=lat)
-                # test only makes sense if certain_timezone_at() or tzwhere find something
-                if his_result is not None:
-                    my_result = self.timezone_finder.timezone_at(lng=lng, lat=lat)
-                    if my_result != his_result or my_result_certain != his_result:
-                        if his_result in excluded_zones_tzwhere and my_result in excluded_zones_timezonefinder:
-                            print(template.format((lat, lng), my_result, my_result_certain,
-                                                  his_result), '(not counted, see issue section)')
-                        else:
-                            mistakes += 1
-                            print(template.format(str((lat, lng)), str(my_result), str(my_result_certain),
-                                                  str(his_result)))
-            print('\nin', N, 'tries', mistakes, 'mismatches were made')
-            fail_percentage = mistakes * 100 / (2 * N)
-            assert fail_percentage < 5
-
-        print_equality_test('realistic points', self.realistic_points)
-        print_equality_test('random points', list_of_random_points(length=N))
-
-    def test_speed(self):
-        print("Speed Tests:\n____________")
-
-        def check_speed_his_algor(list_of_points):
-            start_time = datetime.now()
-            for point in list_of_points:
-                self.tz_where.tzNameAt(latitude=point[1], longitude=point[0])
-            end_time = datetime.now()
-            return end_time - start_time
-
-        def check_speed_my_algor(list_of_points):
-            start_time = datetime.now()
-            for point in list_of_points:
-                self.timezone_finder.timezone_at(lng=point[0], lat=point[1])
-            end_time = datetime.now()
-            return end_time - start_time
-
-        def print_speed_test(type_of_points, list_of_points):
-            my_time = check_speed_my_algor(list_of_points)
-            his_time = check_speed_his_algor(list_of_points)
-            print('')
-            print('\nTIMES for ', N, type_of_points)
-            print_speedup(tz_where_time=his_time, timezoefinder_time=my_time)
-
-        print('\n\n')
-        if SHAPELY:
-            print('shapely: ON (tzwhere)')
-        else:
-            print('shapely: OFF (tzwhere)')
-        if TimezoneFinder.using_numba():
-            print('Numba: ON (timezonefinderL)')
-        else:
-            print('Numba: OFF (timezonefinderL)')
-        print_speed_test('realistic points', self.realistic_points)
-        print_speed_test('random points', list_of_random_points(length=N))
+class MainPackageTest2(MainPackageTest):
+    in_memory_mode = True

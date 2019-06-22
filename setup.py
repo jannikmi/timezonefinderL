@@ -1,4 +1,5 @@
 # -*- coding:utf-8 -*-
+from __future__ import absolute_import, division, print_function, unicode_literals
 
 import os
 import re
@@ -14,7 +15,6 @@ def get_version(package):
     return re.search("__version__ = ['\"]([^'\"]+)['\"]", init_py).group(1)
 
 
-# package_name = 'timezonefinderL'
 version = get_version('timezonefinderL')
 
 with open('README.rst') as f:
@@ -23,25 +23,17 @@ with open('README.rst') as f:
 with open('CHANGELOG.rst') as changelog_file:
     changelog = changelog_file.read()
 
+native_string_pckg_name = 'timezonefinderL'
+
 setup(
     name='timezonefinderL',
     version=version,
     packages=['timezonefinderL'],
-    package_data={'timezonefinderL': ['poly_zone_ids.bin',
-                                      'poly_coord_amount.bin',
-                                      'poly_adr2data.bin',
-                                      'poly_max_values.bin',
-                                      'poly_data.bin',
-                                      'poly_nr2zone_id.bin',
-                                      'hole_poly_ids.bin',
-                                      'hole_coord_amount.bin',
-                                      'hole_adr2data.bin',
-                                      'hole_data.bin',
-                                      'shortcuts_entry_amount.bin',
-                                      'shortcuts_adr2data.bin',
-                                      'shortcuts_data.bin',
-                                      'shortcuts_unique_id.bin', ]},
-    description='Python library to look up timezone from coordinates offline. Light version of "timezonefinder".',
+    package_data={
+        native_string_pckg_name: ['shortcuts_unique_id.bin',
+                                  'timezone_names.json'],
+    },
+    description='lightweight python package for finding the timezone of any point on earth (coordinates) ',
     author='J. Michelfeit',
     author_email='python@michelfe.it',
     license='MIT licence',
@@ -53,16 +45,17 @@ setup(
         'License :: OSI Approved :: MIT License',
         'Operating System :: OS Independent',
         'Programming Language :: Python',
-        "Programming Language :: Python :: 2",
-        'Programming Language :: Python :: 2.7',
         'Programming Language :: Python :: 3',
+        'Programming Language :: Python :: 3 :: Only',
         'Programming Language :: Python :: 3.3',
         'Programming Language :: Python :: 3.4',
         'Programming Language :: Python :: 3.5',
+        'Programming Language :: Python :: 3.6',
         'Topic :: Software Development :: Localization',
     ],
     long_description=readme + '\n\n' + changelog,
     install_requires=[
         'numpy',
+        'importlib_resources',
     ],
 )

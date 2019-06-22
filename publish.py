@@ -1,48 +1,57 @@
 import os
-import sys
 import re
+import sys
+from os.path import abspath, join, pardir, isfile
+
+"""
+required packages
+numpy
 
 
-# required packages
-# numpy
-# six
-# (llvmlite, numba)
+these packages have to be installed in virtual environment in use:
 
-# for testing:
-# pip-tools
-# rstcheck
-# pytest
+for testing:
+pip-tools
+rstcheck
+pytest
 
-# pip-tools package:
-# TODO write bash script for this
-# compile with python 2!
-# its important to pin requirements to get reproducible errors!
-# compile a new requirements file (with the latest versions)
-# source activate py2env
-# pip-compile --upgrade
-# same as?!:
-# pip-compile --output-file requirements.txt requirements.in
-# only update the flask package:
-# pip-compile --upgrade-package flask
-# compile a new requirements file (with versions currently used in the virtual env )
-# pip-compile --generate-hashes requirements.in
+for uploading:
+twine
 
-# do NOT sync. will install ONLY the packages specified! (no more tox etc. installed!)
-# pip-sync
+--cov-config=tox.ini
 
-# commands
-# tox -r to rebuild your tox virtualenvs when you've made changes to requirements setup
-# rstcheck *.rst
-# tox -r -e py{27,36}-codestyle
-# tox -r -e py27
-# tox -r -e py36
+pip-tools package:
+TODO write bash script for this
+its important to pin requirements to get reproducible errors!
+compile a new requirements file (with the latest versions)
+source activate tzEnv
+pip-compile --upgrade
+same as?!:
+pip-compile --output-file requirements.txt requirements.in
+pip-compile --output-file requirements_numba.txt requirements_numba.in
+only update the flask package:
+pip-compile --upgrade-package flask
+compile a new requirements file (with versions currently used in the virtual env )
+pip-compile --generate-hashes requirements_numba.in
+
+do NOT sync. will install ONLY the packages specified! (no more tox etc. installed!)
+pip-sync
+
+commands
+tox -r to rebuild your tox virtualenvs when you've made changes to requirements setup
+rstcheck *.rst
+tox -r -e py36-codestyle
+tox -r -e py36
+"""
+
+PACKAGE = 'timezonefinderL'
 
 
-def get_version(package):
+def get_version(package=PACKAGE):
     """
     Return package version as listed in `__version__` in `__init__.py`.
     """
-    init_py = open(os.path.join(package, '__init__.py')).read()
+    init_py = open(join(package, '__init__.py')).read()
     return re.search("__version__ = ['\"]([^'\"]+)['\"]", init_py).group(1)
 
 
@@ -56,7 +65,7 @@ def set_version(new_version_number=None, old_version_number=''):
     import fileinput
     import sys
 
-    file = os.path.join('timezonefinderL', '__init__.py')
+    file = join(PACKAGE, '__init__.py')
 
     for line in fileinput.input(file, inplace=1):
         if old_version_number in line:
@@ -88,13 +97,13 @@ def convert_version(new_version_input='', old_version='1.0.0'):
     return new_version_input
 
 
-def routine(command=None, message='', option1='next', option2='exit'):
+def routine(cmd=None, message='', option1='next', option2='exit'):
     while 1:
         print(message)
 
-        if command:
-            print('running command:', command)
-            os.system(command)
+        if cmd:
+            print('running command:', cmd)
+            os.system(cmd)
 
         print('__________\nDone. Options:')
         print('1)', option1)
@@ -132,7 +141,7 @@ if __name__ == "__main__":
 
     # TODO run authors tests
 
-    old_version = get_version('timezonefinderL')
+    old_version = get_version()
 
     print('The actual version number is:', old_version)
     print('Enter new version number:')
@@ -150,19 +159,17 @@ if __name__ == "__main__":
 
         print('Invalid version input. Should be of format "x.x.xxx" and higher than the old version.')
 
-    version = get_version('timezonefinderL')
+    version = get_version()
     print('version number has been set to:', version)
     print('=====================')
 
-    routine(None, 'Is the newest OSM data version in use? Does the readme show correct data version?', 'OK. Continue',
-            'Exit')
-    routine(None, 'Remember to keep helpers.py and helpers_numba.py consistent!', 'OK. Continue', 'Exit')
-    routine(None, 'Are all .bin files listed in the package data in setup.py?!', 'OK. Continue', 'Exit')
-    routine(None, 'Are all dependencies written in setup.py, requirements.in/.txt and the Readme?', 'OK. Continue',
+    routine(None, 'Are all dependencies written in setup.py, requirements_numba.in/.txt and the Readme?',
+            'OK. Continue',
             'Exit')
     routine(None, 'Remember to write a changelog now for version %s' % version, 'Done. Continue', 'Exit')
     routine(None,
-            'Maybe update test routine (requirements.txt) with pip-compile with python 2! Commands are written in the beginning of this script',
+            'Maybe re-pin the test dependencies (requirements.txt) with pip-compile!'
+            ' Commands are written in the beginning of this script',
             'Done. Run tests', 'Exit')
 
     # print('Enter virtual env name:')
@@ -174,7 +181,7 @@ if __name__ == "__main__":
     print('___________')
     print('Running TESTS:')
 
-    # routine(virt_env_act_command + "pip-compile requirements.in;pip-sync",
+    # routine(virt_env_act_command + "pip-compile requirements_numba.in;pip-sync",
     #      'pinning the requirements.txt and bringing virtualEnv to exactly the specified state:', 'next: build check')
 
     routine(virt_env_act_command + "rstcheck *.rst", 'checking syntax of all .rst files:', 'next: build check')
@@ -190,19 +197,15 @@ if __name__ == "__main__":
     except ValueError:
         pass
 
-    routine(virt_env_act_command + "tox" + rebuild_flag + " -e py{27,36}-codestyle",
-            'checking syntax, codestyle and imports',
-            'continue')
-    routine(virt_env_act_command + "tox" + rebuild_flag + " -e py27", 'checking if package is building with tox',
-            'continue')
-    routine(virt_env_act_command + "tox" + rebuild_flag + " -e py36",
-            'checking syntax, codestyle and imports',
-            'continue')
-
+    # routine(virt_env_act_command + "tox" + rebuild_flag, 'checking syntax, codestyle and imports', 'continue')
+    routine(virt_env_act_command + "tox" + rebuild_flag + " -e py36-codestyle",
+            'checking syntax, codestyle and imports', 'continue')
+    routine(virt_env_act_command + "tox" + rebuild_flag + " -e py36", 'build tests py3', 'continue')
     print('Tests finished.')
 
     routine(None,
-            'Please commit your changes, push and wait if Travis tests build successfully. Only then merge them into the master.',
+            'Please commit your changes, push and wait if Travis tests build successfully. '
+            'Only then merge them into the master.',
             'Build successful. Publish and upload now.', 'Exit.')
 
     # TODO do this automatically, problem are the commit messages (often the same as changelog)
@@ -221,24 +224,21 @@ if __name__ == "__main__":
     print('=================')
     print('PUBLISHING:')
 
-    '''
-    ~/.pypirc file required:
-    [distutils]
-    index-servers =
-    pypi
-    pypitest
-    
-    [pypi]
-    repository=https://pypi.python.org/pypi
-    username=MrMinimal64
-    password=****
-    
-    [pypitest]
-    repository=https://testpypi.python.org/pypi
-    username=MrMinimal64
-    password=your_password
-    '''
-    routine("python3 setup.py sdist bdist_wheel upload", 'Uploading the package now.')
+    # routine("python3 setup.py sdist bdist_wheel upload", 'Uploading the package now.') # deprecated
+    # new twine publishing routine:
+    # https://packaging.python.org/tutorials/packaging-projects/
+    routine("python3 setup.py sdist bdist_wheel", 'building the package now.')
+
+    path = abspath(join(__file__, pardir, 'dist'))
+    all_archives_this_version = [f for f in os.listdir(path) if isfile(join(path, f)) and version_number in f]
+    paths2archives = [abspath(join(path, f)) for f in all_archives_this_version]
+    command = "twine upload --repository-url https://test.pypi.org/legacy/ " + ' '.join(paths2archives)
+
+    # upload all archives of this version
+    routine(virt_env_act_command + command, 'testing if upload works.')
+
+    command = "twine upload " + ' '.join(paths2archives)
+    routine(virt_env_act_command + command, 'real upload to PyPI.')
 
     # tag erstellen
     routine(None, 'Do you want to create a git release tag?', 'Yes', 'No')
@@ -253,4 +253,4 @@ if __name__ == "__main__":
     print('Publishing Done.')
     print('now run:')
     print('(only when the upload didnt work) python3 setup.py bdist_wheel upload')
-    print('sudo -H pip3 install timezonefinderL --upgrade')
+    print('sudo -H pip install ' + PACKAGE + ' --upgrade')

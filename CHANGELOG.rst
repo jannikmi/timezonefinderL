@@ -2,7 +2,14 @@ Changelog
 =========
 
 
-4.0.2 (2019-05-23)
+Deprecation (2020-05-12)
+------------------
+
+This package has been deprecated.
+Use the ``TimezoneFinderL`` class of the `timezonefinder <https://github.com/MrMinimal64/timezonefinder>`__ package instead.
+
+
+4.0.2 (2019-06-23)
 ------------------
 
 * MAJOR UPDATE: only the function ``timezone_at()`` is being supported
@@ -12,6 +19,7 @@ Changelog
 * data in use now is `timezone-boundary-builder 2019a <https://github.com/evansiroky/timezone-boundary-builder/releases/tag/2019a>`__
 * described options for increasing the accuracy in readme
 * dropped python2 support
+
 
 2.0.1 (2017-04-08)
 ------------------
